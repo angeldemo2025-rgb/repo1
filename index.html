@@ -3,55 +3,48 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Inventario PRO</title>
+<title>Checklist PRO</title>
 
 <style>
-body { font-family: Arial; margin:0; background:#f5f5f5; }
-header { background:#000; color:#fff; padding:15px; text-align:center; }
-.container { padding:15px; }
-
-.item {
-  display:flex;
-  justify-content:space-between;
-  background:#fff;
-  margin:5px 0;
-  padding:10px;
-  border-radius:8px;
-}
-
-input { padding:8px; font-size:14px; }
-.qty { width:60px; text-align:center; }
-
-button {
-  padding:10px;
-  margin:5px;
-  border:none;
-  border-radius:6px;
-  cursor:pointer;
-}
-
-.green { background:green; color:white; }
-.black { background:black; color:white; }
-.red { background:red; color:white; }
+body{margin:0;font-family:sans-serif;background:#0f172a;color:#fff;}
+header{padding:15px;text-align:center;background:#1e293b;}
+.container{padding:15px;}
+.card{background:#1e293b;padding:15px;margin:10px 0;border-radius:10px;cursor:pointer;}
+button{background:#22c55e;border:none;padding:10px;border-radius:8px;margin:5px;}
+input{padding:10px;border-radius:6px;border:none;margin:5px;width:90%;}
+.hidden{display:none;}
+.check{width:20px;height:20px;border:2px solid #fff;display:inline-block;margin-right:10px;cursor:pointer;}
+.check.active{background:lime;}
 </style>
 </head>
 
 <body>
 
-<header>📦 Inventario PRO</header>
+<header>Checklist PRO</header>
 
-<div class="container">
+<div class="container" id="home">
+<input id="nombre" placeholder="Nombre de la lista">
+<button onclick="crear()">Crear</button>
 
-<h2>Lista</h2>
+<h3>Listas</h3>
+<div id="listas"></div>
+</div>
 
-<div id="controls"></div>
-<div id="list"></div>
+<div class="container hidden" id="detalle">
+<button onclick="volver()">⬅ Volver</button>
+<button onclick="compartir()">📤 Compartir</button>
 
+<h3 id="titulo"></h3>
+<div id="contenido"></div>
+
+<input id="nuevo" placeholder="Agregar tarea">
+<button onclick="agregar()">+</button>
 </div>
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCVjGdI5Z3fW8bjHwfBgT5RoOfZZ4Vap8c",
@@ -65,141 +58,146 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// URL params
-const params = new URLSearchParams(window.location.search);
-let id = params.get("id");
-let editorKey = params.get("edit"); // 🔑 clave editor
+let actualId = null;
+let modoVista = false;
 
-// crear ID si no existe
-if(!id){
-  id = Date.now().toString();
-  const key = Math.random().toString(36).substring(2,8);
-  window.location.search = `?id=${id}&edit=${key}`;
+// 🔥 CREAR LISTA
+window.crear = async function(){
+  try{
+    let nombre = document.getElementById("nombre").value.trim();
+    if(!nombre) return alert("Escribe un nombre");
+
+    await addDoc(collection(db,"listas"),{
+      nombre,
+      items:[]
+    });
+
+    document.getElementById("nombre").value="";
+    cargar();
+  }catch(e){
+    alert("Error al crear: " + e.message);
+  }
+};
+
+// 🔥 CARGAR LISTAS
+async function cargar(){
+  try{
+    listas.innerHTML="Cargando...";
+    let snap = await getDocs(collection(db,"listas"));
+
+    listas.innerHTML="";
+    snap.forEach(docu=>{
+      listas.innerHTML += `
+      <div class="card" onclick="abrir('${docu.id}')">
+        ${docu.data().nombre}
+      </div>`;
+    });
+  }catch(e){
+    listas.innerHTML="Error cargando";
+  }
 }
 
-const ref = doc(db, "listas", id);
+// 🔥 ABRIR
+window.abrir = async function(id){
+  try{
+    actualId=id;
 
-let items = [];
-let ownerKey = null;
+    home.classList.add("hidden");
+    detalle.classList.remove("hidden");
 
-// crear lista inicial
-async function crearLista(){
-  const base = [
-    "Azúcar","Sal","Vasos 16 oz","Servilletas","Cucharas",
-    "Platos","Coca Cola","Sprite","Limón","Salsa Roja"
-  ].map(n => ({nombre:n, cantidad:0, fijo:true}));
+    let snap = await getDoc(doc(db,"listas",id));
+    let data = snap.data();
 
-  // 🔥 6 espacios extras (editables SOLO nombre)
-  for(let i=0;i<6;i++){
-    base.push({nombre:"", cantidad:0, fijo:false});
+    titulo.innerText=data.nombre;
+    render(data.items);
+  }catch(e){
+    alert("Error al abrir");
   }
+};
 
-  await setDoc(ref, {
-    items: base,
-    editor: editorKey
+// 🔥 RENDER
+function render(items){
+  contenido.innerHTML="";
+  items.forEach((it,i)=>{
+    contenido.innerHTML+=`
+    <div>
+      <span class="check ${it.ok?'active':''}" onclick="toggle(${i})"></span>
+      ${it.texto}
+    </div>`;
   });
 }
 
-// escuchar cambios
-onSnapshot(ref, (docSnap)=>{
-  if(docSnap.exists()){
-    const data = docSnap.data();
-    items = data.items;
-    ownerKey = data.editor;
-    render();
-  }else{
-    crearLista();
+// 🔥 AGREGAR
+window.agregar = async function(){
+  try{
+    if(modoVista) return alert("Solo lectura");
+
+    let txt = nuevo.value.trim();
+    if(!txt) return;
+
+    let ref = doc(db,"listas",actualId);
+    let snap = await getDoc(ref);
+    let data = snap.data();
+
+    data.items.push({texto:txt,ok:false});
+
+    await updateDoc(ref,{items:data.items});
+
+    nuevo.value="";
+    render(data.items);
+  }catch(e){
+    alert("Error al agregar");
   }
-});
+};
 
-// verificar si es editor
-function esEditor(){
-  return editorKey && editorKey === ownerKey;
-}
+// 🔥 TOGGLE
+window.toggle = async function(i){
+  try{
+    if(modoVista) return;
 
-// render
-function render(){
-  const list = document.getElementById("list");
-  list.innerHTML = "";
+    let ref = doc(db,"listas",actualId);
+    let snap = await getDoc(ref);
+    let data = snap.data();
 
-  items.forEach((item,i)=>{
-    const div = document.createElement("div");
-    div.className="item";
+    data.items[i].ok = !data.items[i].ok;
 
-    // 👀 SOLO VER
-    if(!esEditor()){
-      div.innerHTML = `
-        <span>${item.nombre}</span>
-        <strong>${item.cantidad}</strong>
-      `;
-    }else{
-      // ✏️ EDITOR
-      if(item.fijo){
-        // solo puede cambiar cantidad
-        div.innerHTML = `
-          <span>${item.nombre}</span>
-          <input class="qty" type="number" min="0" max="99"
-            value="${item.cantidad}"
-            onchange="editCantidad(${i}, this.value)">
-        `;
-      }else{
-        // puede agregar nombre y cantidad
-        div.innerHTML = `
-          <input placeholder="Nuevo artículo"
-            value="${item.nombre}"
-            onchange="editNombre(${i}, this.value)">
-          
-          <input class="qty" type="number" min="0" max="99"
-            value="${item.cantidad}"
-            onchange="editCantidad(${i}, this.value)">
-        `;
-      }
-    }
+    await updateDoc(ref,{items:data.items});
+    render(data.items);
+  }catch(e){
+    alert("Error");
+  }
+};
 
-    list.appendChild(div);
-  });
-}
-
-// editar nombre
-window.editNombre = async (i,val)=>{
-  if(!esEditor()) return;
-  items[i].nombre = val;
-  await setDoc(ref,{items, editor:ownerKey});
-}
-
-// editar cantidad
-window.editCantidad = async (i,val)=>{
-  if(!esEditor()) return;
-  val = parseInt(val)||0;
-  if(val>99) val=99;
-  items[i].cantidad = val;
-  await setDoc(ref,{items, editor:ownerKey});
-}
-
-// compartir editor
-function compartir(){
-  const url = window.location.origin + window.location.pathname + `?id=${id}&edit=${ownerKey}`;
+// 🔗 COMPARTIR
+window.compartir = function(){
+  let url = location.origin + location.pathname + "?id=" + actualId;
 
   if(navigator.share){
-    navigator.share({title:"Inventario", url});
+    navigator.share({title:"Checklist",url});
   }else{
-    prompt("Link editor:", url);
+    navigator.clipboard.writeText(url);
+    alert("Link copiado");
+  }
+};
+
+// 🔍 INIT
+async function init(){
+  let params = new URLSearchParams(location.search);
+  let id = params.get("id");
+
+  if(id){
+    modoVista=true;
+    abrir(id);
+  }else{
+    cargar();
   }
 }
 
-// compartir solo ver
-function ver(){
-  const url = window.location.origin + window.location.pathname + `?id=${id}`;
-  window.open(url,"_blank");
-}
+window.volver = function(){
+  location.href = location.pathname;
+};
 
-// botones
-const controls = document.getElementById("controls");
-
-controls.innerHTML = `
-  <button class="green" onclick="compartir()">📤 Enviar a editor</button>
-  <button class="black" onclick="ver()">👀 Solo ver</button>
-`;
+init();
 
 </script>
 
