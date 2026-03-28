@@ -114,19 +114,56 @@ window.abrir = async function(id){
     alert("Error al abrir");
   }
 };
-
-// 🔥 RENDER
 function render(items){
   contenido.innerHTML="";
+
   items.forEach((it,i)=>{
     contenido.innerHTML+=`
-    <div>
+    <div style="margin-bottom:10px;">
       <span class="check ${it.ok?'active':''}" onclick="toggle(${i})"></span>
-      ${it.texto}
+      
+      <span onclick="editar(${i})">${it.texto || "Sin texto"}</span>
+
+      ${!modoVista ? `
+        <button onclick="editar(${i})">✏️</button>
+        <button onclick="borrar(${i})">🗑️</button>
+      ` : ""}
     </div>`;
   });
 }
+// 🔥 RENDER
+// 🗑️ BORRAR
+window.borrar = async function(i){
+  if(modoVista) return;
 
+  if(!confirm("¿Borrar tarea?")) return;
+
+  let ref = doc(db,"listas",actualId);
+  let snap = await getDoc(ref);
+  let data = snap.data();
+
+  data.items.splice(i,1);
+
+  await updateDoc(ref,{items:data.items});
+  render(data.items);
+};
+
+// ✏️ EDITAR
+window.editar = async function(i){
+  if(modoVista) return;
+
+  let ref = doc(db,"listas",actualId);
+  let snap = await getDoc(ref);
+  let data = snap.data();
+
+  let nuevoTexto = prompt("Editar tarea:", data.items[i].texto);
+  if(!nuevoTexto) return;
+
+  data.items[i].texto = nuevoTexto;
+
+  await updateDoc(ref,{items:data.items});
+  render(data.items);
+};
 // 🔥 AGREGAR
 window.agregar = async function(){
   try{
