@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inventario PRO</title>
+
+<style>
+body { font-family: Arial; margin:0; background:#f5f5f5; }
+header { background:#000; color:#fff; padding:15px; text-align:center; }
+.container { padding:15px; }
+
+.item {
+  display:flex;
+  justify-content:space-between;
+  background:#fff;
+  margin:5px 0;
+  padding:10px;
+  border-radius:8px;
+}
+
+input { padding:8px; font-size:14px; }
+.qty { width:60px; text-align:center; }
+
+button {
+  padding:10px;
+  margin:5px;
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+}
+
+.green { background:green; color:white; }
+.black { background:black; color:white; }
+.red { background:red; color:white; }
+</style>
+</head>
+
+<body>
+
+<header>📦 Inventario PRO</header>
+
+<div class="container">
+
+<h2>Lista</h2>
+
+<div id="controls"></div>
+<div id="list"></div>
+
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, doc, setDoc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCVjGdI5Z3fW8bjHwfBgT5RoOfZZ4Vap8c",
+  authDomain: "checklistempresa.firebaseapp.com",
+  projectId: "checklistempresa",
+  storageBucket: "checklistempresa.firebasestorage.app",
+  messagingSenderId: "798095528680",
+  appId: "1:798095528680:web:3114c0b18d5b8001826f5d"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// URL params
+const params = new URLSearchParams(window.location.search);
+let id = params.get("id");
+let editorKey = params.get("edit"); // 🔑 clave editor
+
+// crear ID si no existe
+if(!id){
+  id = Date.now().toString();
+  const key = Math.random().toString(36).substring(2,8);
+  window.location.search = `?id=${id}&edit=${key}`;
+}
+
+const ref = doc(db, "listas", id);
+
+let items = [];
+let ownerKey = null;
+
+// crear lista inicial
+async function crearLista(){
+  const base = [
+    "Azúcar","Sal","Vasos 16 oz","Servilletas","Cucharas",
+    "Platos","Coca Cola","Sprite","Limón","Salsa Roja"
+  ].map(n => ({nombre:n, cantidad:0, fijo:true}));
+
+  // 🔥 6 espacios extras (editables SOLO nombre)
+  for(let i=0;i<6;i++){
+    base.push({nombre:"", cantidad:0, fijo:false});
+  }
+
+  await setDoc(ref, {
+    items: base,
+    editor: editorKey
+  });
+}
+
+// escuchar cambios
+onSnapshot(ref, (docSnap)=>{
+  if(docSnap.exists()){
+    const data = docSnap.data();
+    items = data.items;
+    ownerKey = data.editor;
+    render();
+  }else{
+    crearLista();
+  }
+});
+
+// verificar si es editor
+function esEditor(){
+  return editorKey && editorKey === ownerKey;
+}
+
+// render
+function render(){
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+
+  items.forEach((item,i)=>{
+    const div = document.createElement("div");
+    div.className="item";
+
+    // 👀 SOLO VER
+    if(!esEditor()){
+      div.innerHTML = `
+        <span>${item.nombre}</span>
+        <strong>${item.cantidad}</strong>
+      `;
+    }else{
+      // ✏️ EDITOR
+      if(item.fijo){
+        // solo puede cambiar cantidad
+        div.innerHTML = `
+          <span>${item.nombre}</span>
+          <input class="qty" type="number" min="0" max="99"
+            value="${item.cantidad}"
+            onchange="editCantidad(${i}, this.value)">
+        `;
+      }else{
+        // puede agregar nombre y cantidad
+        div.innerHTML = `
+          <input placeholder="Nuevo artículo"
+            value="${item.nombre}"
+            onchange="editNombre(${i}, this.value)">
+          
+          <input class="qty" type="number" min="0" max="99"
+            value="${item.cantidad}"
+            onchange="editCantidad(${i}, this.value)">
+        `;
+      }
+    }
+
+    list.appendChild(div);
+  });
+}
+
+// editar nombre
+window.editNombre = async (i,val)=>{
+  if(!esEditor()) return;
+  items[i].nombre = val;
+  await setDoc(ref,{items, editor:ownerKey});
+}
+
+// editar cantidad
+window.editCantidad = async (i,val)=>{
+  if(!esEditor()) return;
+  val = parseInt(val)||0;
+  if(val>99) val=99;
+  items[i].cantidad = val;
+  await setDoc(ref,{items, editor:ownerKey});
+}
+
+// compartir editor
+function compartir(){
+  const url = window.location.origin + window.location.pathname + `?id=${id}&edit=${ownerKey}`;
+
+  if(navigator.share){
+    navigator.share({title:"Inventario", url});
+  }else{
+    prompt("Link editor:", url);
+  }
+}
+
+// compartir solo ver
+function ver(){
+  const url = window.location.origin + window.location.pathname + `?id=${id}`;
+  window.open(url,"_blank");
+}
+
+// botones
+const controls = document.getElementById("controls");
+
+controls.innerHTML = `
+  <button class="green" onclick="compartir()">📤 Enviar a editor</button>
+  <button class="black" onclick="ver()">👀 Solo ver</button>
+`;
+
+</script>
+
+</body>
+</html>
